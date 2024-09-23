@@ -1,0 +1,9 @@
+Failed compilation with ['neuronx-cc', 'compile', '--target=trn1', '--framework=XLA', '/tmp/ubuntu/neuroncc_compile_workdir/9f339ee7-50a7-4e0e-bbb1-81eecdb49862/model.MODULE_16356698487170063530+ade7b014.hlo_module.pb', '--output', '/tmp/ubuntu/neuroncc_compile_workdir/9f339ee7-50a7-4e0e-bbb1-81eecdb49862/model.MODULE_16356698487170063530+ade7b014.neff', '--model-type=cnn-training', '--verbose=35']: Process Process-1:1:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "neuronxcc/driver/commands/CompileCommand.py", line 1215, in neuronxcc.driver.commands.CompileCommand.CompileCommand.runPipeline.print_dots
+BrokenPipeError: [Errno 32] Broken pipe
+2024-08-29T13:28:50Z [Errno 32] Broken pipe
