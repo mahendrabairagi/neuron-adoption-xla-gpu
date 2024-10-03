@@ -15,6 +15,11 @@ import torch.multiprocessing as mp
 
 import yolox.utils.dist as comm
 
+import torch_xla.distributed.parallel_loader as pl
+import torch_xla.distributed.xla_backend
+import torch_xla.core.xla_model as xm
+# torch.distributed.init_process_group('xla')
+
 __all__ = ["launch"]
 
 
@@ -41,7 +46,8 @@ def launch(
     num_gpus_per_machine,
     num_machines=1,
     machine_rank=0,
-    backend="nccl",
+    # backend="nccl",
+    backend="xla",
     dist_url=None,
     args=(),
     timeout=DEFAULT_TIMEOUT,

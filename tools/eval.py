@@ -8,6 +8,7 @@ import random
 import warnings
 from loguru import logger
 
+
 import torch
 import torch.backends.cudnn as cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -22,6 +23,19 @@ from yolox.utils import (
     get_model_info,
     setup_logger
 )
+
+import torch_xla.utils.serialization as xser
+import torch_xla.core.xla_model as xm
+import torch_xla
+import torch_xla.debug.metrics as met
+import torch_xla.distributed.parallel_loader as pl
+import torch_xla.utils.utils as xu
+import torch_xla.distributed.xla_multiprocessing as xmp
+
+import torch_xla.core.xla_builder as xb
+import torch_xla.core.xla_op_registry as xor
+import inspect
+# from xla_grad_trainer import GradScaler
 
 
 def make_parser():
@@ -153,19 +167,26 @@ def main(exp, args, num_gpu):
     evaluator.per_class_AP = True
     evaluator.per_class_AR = True
 
-    torch.cuda.set_device(rank)
-    model.cuda(rank)
+    # torch.cuda.set_device(rank)
+    # model.cuda(rank)
+    device = xm.xla_device()
+    model = model.to(device)
     model.eval()
 
     if not args.speed and not args.trt:
         if args.ckpt is None:
+            print(f"FILE_NAME: {file_name}")
             ckpt_file = os.path.join(file_name, "best_ckpt.pth")
+            # ckpt_file = os.path.join(file_name, "last_epoch_ckpt.pth")
         else:
             ckpt_file = args.ckpt
         logger.info("loading checkpoint from {}".format(ckpt_file))
-        loc = "cuda:{}".format(rank)
-        ckpt = torch.load(ckpt_file, map_location=loc)
-        model.load_state_dict(ckpt["model"])
+        # loc = "cuda:{}".format(rank)
+        # loc = xm.xla_device()
+        # ckpt = torch.load(ckpt_file, map_location=loc)
+        # ckpt = torch.load(ckpt_file, map_location=device)["model"]
+        ckpt = xser.load(ckpt_file)
+        model.load_state_dict(ckpt)
         logger.info("loaded checkpoint done.")
 
     if is_distributed:
@@ -205,16 +226,30 @@ if __name__ == "__main__":
     if not args.experiment_name:
         args.experiment_name = exp.exp_name
 
-    num_gpu = torch.cuda.device_count() if args.devices is None else args.devices
-    assert num_gpu <= torch.cuda.device_count()
+    # num_gpu = torch.cuda.device_count() if args.devices is None else args.devices
+    # assert num_gpu <= torch.cuda.device_count()
+
+    num_cores = num_cores = xm.xrt_world_size()
+    assert num_cores <= num_cores, f"Requested {num_cores} devices, but only {num_cores} Neuron cores are available."
+
+    
 
     dist_url = "auto" if args.dist_url is None else args.dist_url
+    # launch(
+    #     main,
+    #     num_gpu,
+    #     args.num_machines,
+    #     args.machine_rank,
+    #     backend=args.dist_backend,
+    #     dist_url=dist_url,
+    #     args=(exp, args, num_gpu),
+    # )
     launch(
         main,
-        num_gpu,
+        num_cores,
         args.num_machines,
         args.machine_rank,
         backend=args.dist_backend,
         dist_url=dist_url,
-        args=(exp, args, num_gpu),
+        args=(exp, args, num_cores),
     )

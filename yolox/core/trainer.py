@@ -4,10 +4,15 @@ import torch_xla.distributed.parallel_loader as pl
 import torch_xla.utils.utils as xu
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.xla_multiprocessing as xmp
+import torch_xla.distributed.xla_backend
+
+
+import torch_xla.core.xla_model as xm
 
 import torch_xla.core.xla_builder as xb
 import torch_xla.core.xla_op_registry as xor
 import inspect
+from torch.utils.data import DataLoader
 # from xla_grad_trainer import GradScaler
 
 import datetime
@@ -42,6 +47,9 @@ from yolox.utils import (
     synchronize
 )
 
+
+# torch.distributed.init_process_group(backend='xla')
+
 class Trainer:
     def __init__(self, exp: Exp, args):
         self.exp = exp
@@ -53,9 +61,11 @@ class Trainer:
         # self.scaler = GradScaler()
         self.scaler = torch.cuda.amp.GradScaler(enabled=args.fp16)
         self.is_distributed = get_world_size() > 1
-        self.rank = get_rank()
-        self.local_rank = get_local_rank()
-        self.device = xm.xla_device()  # Set device to TPU
+        # self.rank = get_rank()
+        self.rank=xm.get_ordinal()
+        # self.local_rank = get_local_rank()
+        # self.device = xm.xla_device()  # Set device to TPU
+        self.device = 'xla'
         self.use_model_ema = exp.ema
         self.save_history_ckpt = exp.save_history_ckpt
 
@@ -131,6 +141,7 @@ class Trainer:
         print("BOUTT DO SCALER.SCALE\n")
         self.scaler.scale(loss).backward()
         print("FINISHED DA SCALER")
+        xm.optimizer_step(optimizer) # XLA MP: performs grad allreduce and optimizer step
 
         # print(f"************************ PRINTING OUTPUTS from trainer {outputs}\n")
         
@@ -201,21 +212,36 @@ class Trainer:
         model = self.exp.get_model()
         logger.info(f"Model Summary: {get_model_info(model, self.exp.test_size)}")
         model.to(self.device)
+        world_size = xm.xrt_world_size()
 
         # solver related initialization
-        self.optimizer = self.exp.get_optimizer(self.args.batch_size)
+        # self.optimizer = self.exp.get_optimizer(self.args.batch_size)
+        self.optimizer = torch.optim.SGD(model.parameters(), lr=.01 * world_size)
 
         # resume training if applicable
         model = self.resume_train(model)
 
         # data related initialization
         self.no_aug = self.start_epoch >= self.max_epoch - self.exp.no_aug_epochs
+
+
+        print(f"WORLD_SIZE: {world_size}")
+        if world_size > 1:
+            train_sampler = DistributedSampler(exp.dataset, 
+                                                num_replicas=world_size,
+                                                rank=xm.get_ordinal(),
+                                                shuffle=True)
+            self.is_distributed=True
+
         self.train_loader = self.exp.get_data_loader(
             batch_size=self.args.batch_size,
             is_distributed=self.is_distributed,
             no_aug=self.no_aug,
             cache_img=self.args.cache,
         )
+    # XLA MP: use MpDeviceLoader from torch_xla.distributed
+
+
         logger.info("init prefetcher, this might take one minute or less...")
         self.prefetcher = pl.MpDeviceLoader(self.train_loader, self.device)  # DataLoader for XLA
 

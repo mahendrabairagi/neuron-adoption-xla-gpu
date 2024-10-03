@@ -14,6 +14,14 @@ from yolox.core import launch
 from yolox.exp import Exp, check_exp_value, get_exp
 from yolox.utils import configure_module, configure_nccl, configure_omp, get_num_devices
 
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
+import torch_xla.distributed.xla_backend
+import torch_xla.core.xla_model as xm
+print("TORCH INIT PROCESS GROUP XLA")
+torch.distributed.init_process_group('xla')
+
+
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
@@ -99,20 +107,26 @@ def make_parser():
 
 @logger.catch
 def main(exp: Exp, args):
-    if exp.seed is not None:
-        random.seed(exp.seed)
-        torch.manual_seed(exp.seed)
-        cudnn.deterministic = True
-        warnings.warn(
-            "You have chosen to seed training. This will turn on the CUDNN deterministic setting, "
-            "which can slow down your training considerably! You may see unexpected behavior "
-            "when restarting from checkpoints."
-        )
+    world_size = xm.xrt_world_size()
+
+    # if exp.seed is not None:
+    #     random.seed(exp.seed)
+    #     torch.manual_seed(exp.seed)
+    #     cudnn.deterministic = True
+    #     warnings.warn(
+    #         "You have chosen to seed training. This will turn on the CUDNN deterministic setting, "
+    #         "which can slow down your training considerably! You may see unexpected behavior "
+    #         "when restarting from checkpoints."
+    #     )
+
+    device = 'xla'
+
+
 
     # set environment variables for distributed training
-    configure_nccl()
-    configure_omp()
-    cudnn.benchmark = True
+    # configure_nccl()
+    # configure_omp()
+    # cudnn.benchmark = True
 
     trainer = exp.get_trainer(args)
     trainer.train()
@@ -128,8 +142,13 @@ if __name__ == "__main__":
     if not args.experiment_name:
         args.experiment_name = exp.exp_name
 
-    num_gpu = get_num_devices() if args.devices is None else args.devices
-    assert num_gpu <= get_num_devices()
+    # num_gpu = get_num_devices() if args.devices is None else args.devices
+    # assert num_gpu <= get_num_devices()
+
+    num_cores = num_cores = xm.xrt_world_size()
+    assert num_cores <= num_cores, f"Requested {num_cores} devices, but only {num_cores} Neuron cores are available."
+
+
 
     if args.cache is not None:
         exp.dataset = exp.get_dataset(cache=True, cache_type=args.cache)
@@ -137,10 +156,11 @@ if __name__ == "__main__":
     dist_url = "auto" if args.dist_url is None else args.dist_url
     launch(
         main,
-        num_gpu,
+        # num_gpu,
+        num_cores,
         args.num_machines,
         args.machine_rank,
-        backend=args.dist_backend,
+        # backend=args.dist_backend,
         dist_url=dist_url,
         args=(exp, args),
     )
